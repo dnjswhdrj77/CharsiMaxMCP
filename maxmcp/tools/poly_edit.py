@@ -10,7 +10,9 @@ draw_spline, then conform the profile verts to it.
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
+
+from pydantic import Field
 
 from ..coerce import FloatList, IntList
 from ..helpers.maxscript import safe_string
@@ -96,7 +98,12 @@ def _indices_literal(indices: list[int]) -> str:
 def edit_vertices(
     action: str,
     name: str = "",
-    indices: Optional[IntList] = None,
+    indices: Annotated[Optional[IntList], Field(description=(
+        "At most 5000 positive vertex indices per call, after filtering out zero and negative values; "
+        "duplicates count. This limits the list length, not vertex ID values or mesh size. "
+        "For get, request batches of at most max_verts (maximum 2000). "
+        "For set, keep indices and positions paired. Do not batch move with falloff > 0."
+    ))] = None,
     offset: Optional[FloatList] = None,
     positions: Any = None,
     target: str = "",
@@ -108,10 +115,14 @@ def edit_vertices(
     in_bbox: Optional[FloatList] = None,
     near_point: Optional[FloatList] = None,
     radius: float = 0.0,
-    max_verts: int = 500,
+    max_verts: Annotated[int, Field(description=(
+        "Maximum returned vertices for get only. Defaults to 500; clamped to 1..2000. "
+        "For larger reads, use explicit index batches no larger than max_verts."
+    ))] = 500,
     convert: bool = False,
 ) -> Any:
     """Read and manipulate Editable_Poly vertices in world space.
+    Per call: at most 5000 positive indices; get returns at most 2000 vertices.
 
     Actions:
     - get: vertex positions — filter by `indices`, `in_bbox` [minx,miny,minz,
@@ -124,6 +135,22 @@ def edit_vertices(
       x|y|z casts both ways, +x/-x/... one way). `axes` masks which world axes
       the displacement applies to (e.g. "xz" fits a silhouette while preserving
       width); `strength` is the fraction moved (1.0 = all the way).
+
+    Limits and batching:
+    - The 5000 cap counts positive entries in `indices`, including duplicates,
+      after zero/negative entries are removed. It does not limit vertex ID values
+      or the object's total vertex count. Omit indices for move/conform only when
+      the entire mesh is intended.
+    - get: max_verts defaults to 500 and is clamped to 1..2000. Read larger sets
+      with explicit index batches no larger than max_verts, on unchanged topology;
+      repeating a truncated query does not advance to the next page.
+    - set: split indices and matching position triples together, preserving order.
+      move with falloff=0: use non-overlapping index batches of at most 5000.
+    - Do not split move with falloff>0: overlapping soft influence can move
+      vertices repeatedly and change the result. Plan a different deformation.
+    - Batch conform only against a target that stays unchanged between calls.
+      Edits in separate calls are not one atomic operation; do not replay batches
+      that already succeeded.
 
     Edits hit the Editable_Poly BASE object beneath any modifiers (cage editing —
     TurboSmooth etc. update live). Non-poly bases: pass convert=true (collapses
@@ -140,7 +167,28 @@ def edit_vertices(
     safe = safe_string(name)
     idx_list = [int(i) for i in (indices or []) if int(i) > 0]
     if len(idx_list) > MAX_INDICES:
-        return _err(f"{len(idx_list)} indices exceeds the {MAX_INDICES} cap")
+        if action == "get":
+            guidance = (f"Read explicit index batches of at most {MAX_GET}, with max_verts set "
+                        f"to the batch size (maximum {MAX_GET}). Keep topology unchanged between reads.")
+        elif action == "set":
+            guidance = (f"Split indices and matching position triples together into batches of at most "
+                        f"{MAX_INDICES}, preserving their order and pairing. Do not replay successful batches.")
+        elif action == "move" and falloff > 0:
+            guidance = ("Do not split a move with falloff > 0: overlapping soft influence can move "
+                        "vertices repeatedly and change the result. Plan a different deformation.")
+        elif action == "move":
+            guidance = (f"Use non-overlapping index batches of at most {MAX_INDICES} for move with "
+                        "falloff=0. Do not replay successful batches.")
+        elif action == "conform":
+            guidance = (f"Use index batches of at most {MAX_INDICES} only if the conform target stays "
+                        "unchanged between calls. Do not replay successful batches.")
+        else:
+            guidance = "Choose a supported action: get, move, set, or conform."
+        return _err(
+            f"{len(idx_list)} indices exceeds the {MAX_INDICES} cap per call. "
+            f"No command was sent to Max for this call. {guidance}",
+            max_indices=MAX_INDICES, received_indices=len(idx_list),
+        )
     guard = _poly_guard(safe, convert)
     tail = "\n)\n)\n)"
 
@@ -211,7 +259,13 @@ def edit_vertices(
                 }
         result: dict[str, Any] = {"name": name, **meta, "verts": verts}
         if meta.get("matched", 0) > meta.get("returned", 0):
-            result["truncated"] = "raise max_verts or narrow the filter"
+            result["truncated"] = (
+                f"Returned at most {cap} matching vertices. max_verts defaults to 500 and is capped at "
+                f"{MAX_GET}; increasing it beyond {MAX_GET} has no effect. To read the rest, use "
+                f"explicit index batches of at most {MAX_GET} and set max_verts to the batch size. "
+                "Keep topology unchanged between reads. Alternatively, narrow the filter. "
+                "Repeating this query does not advance to the next page."
+            )
         return result
 
     if action == "move":

@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Charsi fork: `edit_vertices` now documents the existing 5000-positive-index input cap and 2000-vertex read cap in tool descriptions and input schemas. Oversized requests explain how to proceed without replaying completed edits; soft-falloff moves explicitly warn against splitting. Truncated reads explain explicit index batching and the `max_verts` ceiling. Limits and modeling behavior are unchanged.
+
 ## [1.7.5] — 2026-10-01
 
 - Agents can read and answer any dialog blocking 3ds Max, Win32 or Qt. A call that opens or waits behind a dialog now returns `BLOCKED_BY_DIALOG` with the title, text and buttons instead of hanging; `max_dialogs` presses a chosen button and returns the interrupted call's result. Other tool replies warn while a dialog is open. Agents ask the user before save, overwrite, discard, Fetch, Reset or licensing choices unless told to proceed.

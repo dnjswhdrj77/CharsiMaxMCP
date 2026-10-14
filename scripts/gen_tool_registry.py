@@ -42,6 +42,16 @@ def annotation_to_schema(node: ast.expr | None) -> dict[str, Any]:
         return dict(TYPE_MAP.get(node.id, {}))
     if isinstance(node, ast.Subscript):
         base = node.value.id if isinstance(node.value, ast.Name) else ""
+        if base == "Annotated" and isinstance(node.slice, ast.Tuple):
+            schema = annotation_to_schema(node.slice.elts[0])
+            for metadata in node.slice.elts[1:]:
+                if (isinstance(metadata, ast.Call) and isinstance(metadata.func, ast.Name)
+                        and metadata.func.id == "Field"):
+                    for keyword in metadata.keywords:
+                        if (keyword.arg == "description" and isinstance(keyword.value, ast.Constant)
+                                and isinstance(keyword.value.value, str)):
+                            schema["description"] = keyword.value.value
+            return schema
         if base == "Optional":
             inner = node.slice
             return annotation_to_schema(inner)

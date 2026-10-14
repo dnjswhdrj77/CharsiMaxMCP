@@ -4054,7 +4054,7 @@
     },
     {
       "name": "edit_vertices",
-      "description": "Read and manipulate Editable_Poly vertices in world space.",
+      "description": "Read and manipulate Editable_Poly vertices in world space. Per call: at most 5000 positive indices; get returns at most 2000 vertices.",
       "category": "Poly Edit",
       "group": "Other",
       "module": "poly_edit",
@@ -4071,7 +4071,8 @@
             "type": "array",
             "items": {
               "type": "integer"
-            }
+            },
+            "description": "At most 5000 positive vertex indices per call, after filtering out zero and negative values; duplicates count. This limits the list length, not vertex ID values or mesh size. For get, request batches of at most max_verts (maximum 2000). For set, keep indices and positions paired. Do not batch move with falloff > 0."
           },
           "offset": {
             "type": "array",
@@ -4114,7 +4115,8 @@
             "type": "number"
           },
           "max_verts": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Maximum returned vertices for get only. Defaults to 500; clamped to 1..2000. For larger reads, use explicit index batches no larger than max_verts."
           },
           "convert": {
             "type": "boolean"
